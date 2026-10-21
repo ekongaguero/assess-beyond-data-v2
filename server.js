@@ -1,172 +1,455 @@
 
-const express = require("express");
-const axios = require("axios");
-const { Pool } = require("pg");
+const express = require('express');
+const axios = require('axios');
+const { Pool } = require('pg');
+const crypto = require('crypto');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '20kb' }));
 
 const PORT = process.env.PORT || 3000;
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
-const DATABASE_URL = process.env.DATABASE_URL;
 
-const pool = DATABASE_URL
-  ? new Pool({
-      connectionString: DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-    })
-  : null;
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL is missing.');
+}
 
-const PLANS = {
-  BASIC_1_DAY: { amount: 100000, days: 1 },
-  BASIC_3_DAYS: { amount: 340000, days: 3 },
-  BASIC_7_DAYS: { amount: 600000, days: 7 },
-  BASIC_30_DAYS: { amount: 2500000, days: 30 },
-  PREMIUM_1_DAY: { amount: 200000, days: 1 },
-  PREMIUM_3_DAYS: { amount: 600000, days: 3 },
-  PREMIUM_7_DAYS: { amount: 1000000, days: 7 },
-  PREMIUM_30_DAYS: { amount: 5000000, days: 30 },
-};
+if (!PAYSTACK_SECRET_KEY) {
+  console.error('PAYSTACK_SECRET_KEY is missing.');
+}
 
-app.get("/", (req, res) => {
-  res.json({ service: "ASSESS Beyond Data V2", status: "running" });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 10000,
 });
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
+const paystack = axios.create({
+  baseURL: 'https://api.paystack.co',
+  timeout: 20000,
+  headers: {
+    Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+    'Content-Type': 'application/json',
+  },
 });
 
-app.get("/health/database", async (req, res) => {
-  if (!pool) {
-    return res.status(503).json({
-      status: "error",
-      message: "DATABASE_URL is not configured",
-    });
-  }
-
-  try {
-    await pool.query("SELECT 1");
-    res.json({ status: "ok", message: "Neon database connected" });
-  } catch (error) {
-    console.error("Database health check failed:", error.message);
-    res.status(503).json({ status: "error", message: "Database connection failed" });
-  }
-});
-
-app.get("/api/plans", (req, res) => {
+app.get('/', (req, res) => {
   res.json({
-    plans: Object.entries(PLANS).map(([code, plan]) => ({
-      code,
-      amount_kobo: plan.amount,
-      duration_days: plan.days,
-      daily_quota_gb: 50,
-      device_limit: 1,
-    })),
+    service: 'ASSESS Beyond Data V2',
+    status: 'running',
   });
 });
 
-app.post("/api/payments/initialize", async (req, res) => {
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.get('/health/database', async (req, res) => {
   try {
-    if (!PAYSTACK_SECRET_KEY) {
-      return res.status(503).json({ message: "Payment service is not configured" });
-    }
-
-    const email = String(req.body.email || "").trim().toLowerCase();
-    const planCode = String(req.body.planCode || req.body.plan || "").trim().toUpperCase();
-    const plan = PLANS[planCode];
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ message: "A valid email address is required" });
-    }
-
-    if (!plan) {
-      return res.status(400).json({ message: "Invalid planCode" });
-    }
-
-    const response = await axios.post(
-      "https://api.paystack.co/transaction/initialize",
-      {
-        email,
-        amount: plan.amount,
-        currency: "NGN",
-        metadata: { planCode },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 20000,
-      }
-    );
-
-    const data = response.data.data;
-    res.json({
-      status: "success",
-      authorization_url: data.authorization_url,
-      reference: data.reference,
-      access_code: data.access_code,
-      planCode,
-      amount_kobo: plan.amount,
-    });
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', message: 'Neon database connected' });
   } catch (error) {
-    console.error("Payment initialization failed:", error.response?.data || error.message);
-    res.status(502).json({ message: "Could not initialize payment" });
+    console.error('Database health check failed:', error.message);
+    res.status(503).json({ status: 'error', message: 'Database unavailable' });
   }
 });
 
-app.get("/api/payments/verify/:reference", async (req, res) => {
+// Neon is the source of truth for plans and prices.
+app.get('/api/plans', async (req, res) => {
   try {
-    if (!PAYSTACK_SECRET_KEY) {
-      return res.status(503).json({ message: "Payment service is not configured" });
-    }
+    const result = await pool.query(`
+      SELECT code, name, duration_days, amount_kobo,
+             daily_quota_bytes, device_limit
+      FROM plans
+      WHERE active = true
+      ORDER BY duration_days, code
+    `);
 
-    const reference = String(req.params.reference || "").trim();
+    res.json({ status: 'ok', plans: result.rows });
+  } catch (error) {
+    console.error('Could not load plans:', error.message);
+    res.status(500).json({ status: 'error', message: 'Could not load plans' });
+  }
+});
 
-    if (!reference) {
-      return res.status(400).json({ message: "Payment reference is required" });
-    }
+// Initialize a Paystack test/live transaction using the configured key.
+app.post('/api/payments/initialize', async (req, res) => {
+  const email =
+    typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const planCode =
+    typeof req.body?.planCode === 'string'
+      ? req.body.planCode.trim()
+      : typeof req.body?.plan === 'string'
+        ? req.body.plan.trim()
+        : '';
 
-    const response = await axios.get(
-      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-      {
-        headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` },
-        timeout: 20000,
-      }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'A valid email address is required.',
+    });
+  }
+
+  if (!/^[A-Z0-9_]+$/.test(planCode)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'A valid planCode is required.',
+    });
+  }
+
+  let client;
+  let reference;
+
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    const planResult = await client.query(
+      `SELECT code, name, duration_days, amount_kobo
+       FROM plans
+       WHERE code = $1 AND active = true`,
+      [planCode]
     );
 
-    const transaction = response.data.data;
-    const planCode = transaction.metadata?.planCode;
-    const plan = PLANS[planCode];
-
-    if (
-      transaction.reference !== reference ||
-      transaction.status !== "success" ||
-      transaction.currency !== "NGN" ||
-      !plan ||
-      Number(transaction.amount) !== plan.amount
-    ) {
+    if (planResult.rowCount === 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
-        paid: false,
-        activated: false,
-        message: "Payment could not be verified for this plan",
+        status: 'error',
+        message: 'Plan not found or inactive.',
       });
     }
 
-    // Payment is verified, but database activation is not implemented yet.
-    res.json({
-      paid: true,
-      activated: false,
+    const plan = planResult.rows[0];
+
+    const customerResult = await client.query(
+      `INSERT INTO customers (email, created_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (email)
+       DO UPDATE SET email = EXCLUDED.email
+       RETURNING id, email`,
+      [email]
+    );
+
+    const customer = customerResult.rows[0];
+
+    // Create a reference before contacting Paystack and save it first.
+    reference = `AS${crypto.randomUUID().replace(/-/g, '')}`;
+
+    await client.query(
+      `INSERT INTO payments
+       (reference, customer_id, plan_code, expected_amount_kobo,
+        currency, status, created_at)
+       VALUES ($1, $2, $3, $4, 'NGN', 'pending', NOW())`,
+      [reference, customer.id, plan.code, plan.amount_kobo]
+    );
+
+    await client.query('COMMIT');
+
+    const response = await paystack.post('/transaction/initialize', {
+      email: customer.email,
+      amount: String(plan.amount_kobo),
+      currency: 'NGN',
       reference,
-      planCode,
-      message: "Payment verified. Subscription activation is not yet enabled.",
+      metadata: {
+        planCode: plan.code,
+        customerId: String(customer.id),
+      },
+    });
+
+    return res.json({
+      status: 'ok',
+      authorization_url: response.data.data.authorization_url,
+      reference,
+      planCode: plan.code,
     });
   } catch (error) {
-    console.error("Payment verification failed:", error.response?.data || error.message);
-    res.status(502).json({ paid: false, message: "Could not verify payment" });
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {}
+    }
+
+    // If a payment row was saved but Paystack initialization failed,
+    // mark it failed only if it is still pending.
+    if (reference) {
+      try {
+        await pool.query(
+          `UPDATE payments SET status = 'failed'
+           WHERE reference = $1 AND status = 'pending'`,
+          [reference]
+        );
+      } catch (dbError) {
+        console.error('Could not update failed initialization:', dbError.message);
+      }
+    }
+
+    console.error(
+      'Payment initialization failed:',
+      error.response?.data?.message || error.message
+    );
+
+    return res.status(502).json({
+      status: 'error',
+      message: 'Could not initialize payment. Please try again.',
+    });
+  } finally {
+    if (client) client.release();
   }
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+// Verify Paystack and activate a subscription exactly once.
+app.get('/api/payments/verify/:reference', async (req, res) => {
+  const reference = req.params.reference;
+
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(reference)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid payment reference.',
+    });
+  }
+
+  let transaction;
+  try {
+    // A reference must exist in our own database before it can activate access.
+    const savedResult = await pool.query(
+      `SELECT p.reference, p.customer_id, p.plan_code,
+              p.expected_amount_kobo, p.status, p.paid_amount_kobo,
+              p.currency, s.id AS subscription_id
+       FROM payments p
+       LEFT JOIN subscriptions s ON s.payment_reference = p.reference
+       WHERE p.reference = $1`,
+      [reference]
+    );
+
+    if (savedResult.rowCount === 0) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Payment reference not found.',
+      });
+    }
+
+    const saved = savedResult.rows[0];
+
+    if (saved.status === 'paid' && saved.subscription_id) {
+      return res.json({
+        status: 'ok',
+        paid: true,
+        activated: true,
+        alreadyActivated: true,
+        reference,
+      });
+    }
+
+    if (saved.status !== 'pending') {
+      return res.status(400).json({
+        status: 'error',
+        paid: false,
+        message: `This payment is ${saved.status}.`,
+      });
+    }
+
+    const planResult = await pool.query(
+      `SELECT code, duration_days, amount_kobo, device_limit
+       FROM plans
+       WHERE code = $1 AND active = true`,
+      [saved.plan_code]
+    );
+
+    if (planResult.rowCount === 0) {
+      return res.status(400).json({
+        status: 'error',
+        paid: false,
+        message: 'The saved plan is unavailable.',
+      });
+    }
+
+    const plan = planResult.rows[0];
+
+    const paystackResult = await paystack.get(
+      `/transaction/verify/${encodeURIComponent(reference)}`
+    );
+
+    transaction = paystackResult.data.data;
+
+    const verifiedAmount = Number(transaction.amount);
+    const expectedAmount = Number(saved.expected_amount_kobo);
+
+    const valid =
+      transaction.reference === reference &&
+      transaction.status === 'success' &&
+      transaction.currency === 'NGN' &&
+      Number.isSafeInteger(verifiedAmount) &&
+      verifiedAmount === expectedAmount &&
+      expectedAmount === Number(plan.amount_kobo) &&
+      saved.currency === 'NGN';
+
+    if (!valid) {
+      return res.status(400).json({
+        status: 'error',
+        paid: false,
+        message: 'Payment could not be verified against the saved amount and plan.',
+      });
+    }
+  } catch (error) {
+    console.error(
+      'Paystack verification request failed:',
+      error.response?.data?.message || error.message
+    );
+
+    return res.status(502).json({
+      status: 'error',
+      message: 'Could not verify payment right now. Please try again.',
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const lockedResult = await client.query(
+      `SELECT reference, customer_id, plan_code, expected_amount_kobo,
+              currency, status
+       FROM payments
+       WHERE reference = $1
+       FOR UPDATE`,
+      [reference]
+    );
+
+    if (lockedResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        status: 'error',
+        message: 'Payment record not found.',
+      });
+    }
+
+    const payment = lockedResult.rows[0];
+
+    // Another verification request may already have activated it.
+    if (payment.status === 'paid') {
+      const existing = await client.query(
+        `SELECT id FROM subscriptions WHERE payment_reference = $1`,
+        [reference]
+      );
+
+      if (existing.rowCount > 0) {
+        await client.query('COMMIT');
+        return res.json({
+          status: 'ok',
+          paid: true,
+          activated: true,
+          alreadyActivated: true,
+          reference,
+        });
+      }
+
+      throw new Error('Paid payment has no subscription; manual review required.');
+    }
+
+    if (payment.status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        status: 'error',
+        paid: false,
+        message: `Payment is ${payment.status}.`,
+      });
+    }
+
+    const planResult = await client.query(
+      `SELECT code, duration_days, amount_kobo, device_limit
+       FROM plans WHERE code = $1 AND active = true`,
+      [payment.plan_code]
+    );
+
+    if (planResult.rowCount === 0) {
+      throw new Error('Plan became unavailable during activation.');
+    }
+
+    const plan = planResult.rows[0];
+
+    // Recheck amount against the locked database record.
+    if (
+      transaction.reference !== payment.reference ||
+      transaction.status !== 'success' ||
+      transaction.currency !== payment.currency ||
+      Number(transaction.amount) !== Number(payment.expected_amount_kobo) ||
+      Number(payment.expected_amount_kobo) !== Number(plan.amount_kobo)
+    ) {
+      throw new Error('Payment validation changed before activation.');
+    }
+
+    await client.query(
+      `UPDATE payments
+       SET status = 'paid',
+           paid_amount_kobo = $2,
+           currency = 'NGN',
+           paid_at = NOW()
+       WHERE reference = $1`,
+      [reference, Number(transaction.amount)]
+    );
+
+    await client.query(
+      `INSERT INTO subscriptions
+       (customer_id, payment_reference, plan_code, starts_at, expires_at,
+        status, device_limit, created_at)
+       VALUES ($1, $2, $3, NOW(),
+               NOW() + ($4 * INTERVAL '1 day'),
+               'active', $5, NOW())`,
+      [
+        payment.customer_id,
+        reference,
+        plan.code,
+        Number(plan.duration_days),
+        Number(plan.device_limit),
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    return res.json({
+      status: 'ok',
+      paid: true,
+      activated: true,
+      reference,
+      planCode: plan.code,
+      durationDays: Number(plan.duration_days),
+      deviceLimit: Number(plan.device_limit),
+      autoRenew: false,
+      message: 'Payment confirmed and subscription recorded.',
+    });
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {}
+
+    console.error('Subscription activation failed:', error.message);
+
+    return res.status(500).json({
+      status: 'error',
+      paid: false,
+      message: 'Payment was verified, but activation needs review or retry.',
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.use((error, req, res, next) => {
+  if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid JSON request body.',
+    });
+  }
+
+  console.error('Unexpected server error:', error.message);
+  return res.status(500).json({
+    status: 'error',
+    message: 'Internal server error.',
+  });
+});
+
+app.listen(PORT, () => {
   console.log(`ASSESS Beyond Data V2 running on port ${PORT}`);
 });

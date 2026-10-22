@@ -304,6 +304,9 @@ app.get('/api/payments/verify/:reference', async (req, res) => {
   verifiedAmountKobo: Number(transaction.amount),
   expectedAmountKobo: Number(saved.expected_amount_kobo),
   planAmountKobo: Number(plan.amount_kobo),
+    gatewayResponseAmount: transaction.gateway_response,
+  feeKobo: transaction.fees,
+  requestedAmountKobo: transaction.requested_amount,    
 });
     
     const valid =

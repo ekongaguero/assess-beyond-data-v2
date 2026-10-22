@@ -395,15 +395,17 @@ if (!valid) {
 
     const lockedPlan = lockedPlanResult.rows[0];
 
-    if (
-      transaction.reference !== payment.reference ||
-      transaction.status !== 'success' ||
-      transaction.currency !== payment.currency ||
-      Number(transaction.amount) !== Number(payment.expected_amount_kobo) ||
-      Number(payment.expected_amount_kobo) !== Number(lockedPlan.amount_kobo)
-    ) {
-      throw new Error('Payment validation failed during activation.');
-    }
+   if (
+  transaction.reference !== payment.reference ||
+  transaction.status !== 'success' ||
+  transaction.currency !== payment.currency ||
+  Number(transaction.requested_amount) !== Number(payment.expected_amount_kobo) ||
+  Number(transaction.amount) !==
+    Number(transaction.requested_amount) + Number(transaction.fees) ||
+  Number(payment.expected_amount_kobo) !== Number(lockedPlan.amount_kobo)
+) {
+  throw new Error('Payment validation failed during activation.');
+}
 
     await client.query(
       `UPDATE payments

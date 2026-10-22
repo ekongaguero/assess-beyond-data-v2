@@ -239,6 +239,24 @@ app.post('/api/payments/initialize', async (req, res) => {
   }
 });
 
+app.get('/api/payments/callback', (req, res) => {
+  const reference = req.query.reference;
+
+  if (
+    typeof reference !== 'string' ||
+    !/^[A-Za-z0-9_-]{1,100}$/.test(reference)
+  ) {
+    return res.status(400).send(
+      'Invalid payment reference. Please contact ASSESS support.'
+    );
+  }
+
+  return res.redirect(
+    303,
+    `/api/payments/verify/${encodeURIComponent(reference)}`
+  );
+});
+
 app.get('/api/payments/verify/:reference', async (req, res) => {
   if (!PAYSTACK_SECRET_KEY) {
     return res.status(503).json({

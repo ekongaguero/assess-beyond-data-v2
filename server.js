@@ -393,8 +393,21 @@ if (!valid) {
       throw new Error('Plan unavailable during activation.');
     }
 
-    const lockedPlan = lockedPlanResult.rows[0];
-
+    const lockedPlan = lockedPlanResult.rows[0];  
+console.log('ASSESS ACTIVATION DIAGNOSTIC', {
+  referenceMatches: transaction.reference === payment.reference,
+  transactionStatus: transaction.status,
+  transactionCurrency: transaction.currency,
+  paymentCurrency: payment.currency,
+  requestedAmountKobo: Number(transaction.requested_amount),
+  expectedAmountKobo: Number(payment.expected_amount_kobo),
+  verifiedAmountKobo: Number(transaction.amount),
+  feeKobo: Number(transaction.fees),
+  totalMatches: Number(transaction.amount) ===
+    Number(transaction.requested_amount) + Number(transaction.fees),
+  planAmountKobo: Number(lockedPlan.amount_kobo),
+});
+    
    if (
   transaction.reference !== payment.reference ||
   transaction.status !== 'success' ||

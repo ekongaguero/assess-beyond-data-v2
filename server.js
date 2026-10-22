@@ -296,6 +296,16 @@ app.get('/api/payments/verify/:reference', async (req, res) => {
     const verifiedAmount = Number(transaction.amount);
     const expectedAmount = Number(saved.expected_amount_kobo);
 
+    console.log('ASSESS PAYMENT DIAGNOSTIC', {
+  referenceMatches: transaction.reference === reference,
+  transactionStatus: transaction.status,
+  transactionCurrency: transaction.currency,
+  savedCurrency: saved.currency,
+  verifiedAmountKobo: Number(transaction.amount),
+  expectedAmountKobo: Number(saved.expected_amount_kobo),
+  planAmountKobo: Number(plan.amount_kobo),
+});
+    
     const valid =
       transaction.reference === reference &&
       transaction.status === 'success' &&

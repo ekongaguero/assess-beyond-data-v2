@@ -192,6 +192,7 @@ app.post('/api/payments/initialize', async (req, res) => {
       email: customer.email,
       amount: String(plan.amount_kobo),
       currency: 'NGN',
+      callback_url: 'https://assess-beyond-data-v2.onrender.com/api/payments/callback',
       reference,
       metadata: {
         planCode: plan.code,

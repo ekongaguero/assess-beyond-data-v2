@@ -240,6 +240,7 @@ app.post('/api/payments/initialize', async (req, res) => {
   }
 });
 
+
 app.get('/api/payments/callback', (req, res) => {
   const reference = req.query.reference;
 
@@ -247,16 +248,109 @@ app.get('/api/payments/callback', (req, res) => {
     typeof reference !== 'string' ||
     !/^[A-Za-z0-9_-]{1,100}$/.test(reference)
   ) {
-    return res.status(400).send(
-      'Invalid payment reference. Please contact ASSESS support.'
-    );
+    return res.redirect(303, '/payment-result?status=invalid');
   }
 
   return res.redirect(
     303,
-    `/api/payments/verify/${encodeURIComponent(reference)}`
+    `/payment-result?reference=${encodeURIComponent(reference)}`
   );
 });
+
+app.get('/payment-result', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+
+  res.type('html').send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASSESS Beyond Data — Payment Result</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #071426;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+      display: flex;
+      min-height: 90vh;
+      align-items: center;
+      justify-content: center;
+    }
+    main {
+      width: 100%;
+      max-width: 460px;
+      padding: 28px;
+      box-sizing: border-box;
+      background: #10233a;
+      border-radius: 16px;
+      text-align: center;
+    }
+    h1 { letter-spacing: 4px; margin-bottom: 4px; }
+    .tagline { color: #43d9bd; letter-spacing: 3px; }
+    #message { line-height: 1.6; margin: 28px 0; }
+    a {
+      display: inline-block;
+      color: #071426;
+      background: #43d9bd;
+      padding: 12px 18px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ASSESS</h1>
+    <div class="tagline">BEYOND DATA</div>
+    <h2>Payment result</h2>
+    <p id="message" role="status" aria-live="polite">
+      Checking your payment securely. Please wait…
+    </p>
+    <a href="https://snack.expo.dev/@ekong/assess-internet-?platform=web">
+      Return to ASSESS
+    </a>
+  </main>
+  <script>
+    (async function () {
+      const message = document.getElementById('message');
+      const params = new URLSearchParams(window.location.search);
+      const reference = params.get('reference');
+
+      if (params.get('status') === 'invalid' || !reference ||
+          !/^[A-Za-z0-9_-]{1,100}$/.test(reference)) {
+        message.textContent =
+          'No valid payment reference was received. Please return to ASSESS and check your payment status.';
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          '/api/payments/verify/' + encodeURIComponent(reference),
+          { cache: 'no-store' }
+        );
+        const result = await response.json();
+
+        if (result.paid && result.activated) {
+          message.textContent =
+            'Payment confirmed! Your ASSESS subscription has been activated. You can now return to ASSESS.';
+        } else {
+          message.textContent =
+            result.message ||
+            'Payment is not confirmed yet. Please contact ASSESS support if you were charged.';
+        }
+      } catch (error) {
+        message.textContent =
+          'We could not check your payment right now. Please contact ASSESS support before paying again.';
+      }
+    })();
+  </script>
+</body>
+</html>`);
+});
+
 
 app.get('/api/payments/verify/:reference', async (req, res) => {
   if (!PAYSTACK_SECRET_KEY) {

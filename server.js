@@ -309,23 +309,28 @@ app.get('/api/payments/verify/:reference', async (req, res) => {
   requestedAmountKobo: transaction.requested_amount,    
 });
     
-    const valid =
-      transaction.reference === reference &&
-      transaction.status === 'success' &&
-      transaction.currency === 'NGN' &&
-      saved.currency === 'NGN' &&
-      Number.isSafeInteger(verifiedAmount) &&
-      verifiedAmount === expectedAmount &&
-      expectedAmount === Number(plan.amount_kobo);
+const requestedAmount = Number(transaction.requested_amount);
+const feeKobo = Number(transaction.fees);
 
-    if (!valid) {
-      return res.status(400).json({
-        status: 'error',
-        paid: false,
-        message: 'Payment could not be verified against the saved amount and plan.',
-      });
-    }
+const valid =
+  transaction.reference === reference &&
+  transaction.status === 'success' &&
+  transaction.currency === 'NGN' &&
+  saved.currency === 'NGN' &&
+  Number.isSafeInteger(verifiedAmount) &&
+  Number.isSafeInteger(requestedAmount) &&
+  Number.isSafeInteger(feeKobo) &&
+  requestedAmount === expectedAmount &&
+  verifiedAmount === requestedAmount + feeKobo &&
+  expectedAmount === Number(plan.amount_kobo);
 
+if (!valid) {
+  return res.status(400).json({
+    status: 'error',
+    paid: false,
+    message: 'Payment could not be verified against the saved amount and plan.',
+  });
+}
     client = await pool.connect();
     await client.query('BEGIN');
 

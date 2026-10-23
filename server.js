@@ -309,7 +309,7 @@ app.get('/payment-result', (req, res) => {
     <p id="message" role="status" aria-live="polite">
       Checking your payment securely. Please wait…
     </p>
-    <a href="https://snack.expo.dev/@ekong/assess-internet-?platform=web">
+    <a href="https://exquisite-bombolone-ab117b.netlify.app">
       Return to ASSESS
     </a>
   </main>

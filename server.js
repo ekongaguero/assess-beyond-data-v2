@@ -550,16 +550,23 @@ console.log('ASSESS ACTIVATION DIAGNOSTIC', {
   planAmountKobo: Number(lockedPlan.amount_kobo),
 });
     
-    if (
+  
+if (
   transaction.reference !== payment.reference ||
   transaction.status !== 'success' ||
   transaction.currency !== payment.currency ||
   !Number.isSafeInteger(Number(transaction.amount)) ||
-  Number(transaction.amount) !== Number(payment.expected_amount_kobo) ||
+  !Number.isSafeInteger(Number(transaction.requested_amount)) ||
+  !Number.isSafeInteger(Number(transaction.fees)) ||
+  Number(transaction.requested_amount) !==
+    Number(payment.expected_amount_kobo) ||
+  Number(transaction.amount) !==
+    Number(transaction.requested_amount) + Number(transaction.fees) ||
   Number(payment.expected_amount_kobo) !== Number(lockedPlan.amount_kobo)
 ) {
   throw new Error('Payment validation failed during activation.');
 }
+
 
     await client.query(
       `UPDATE payments

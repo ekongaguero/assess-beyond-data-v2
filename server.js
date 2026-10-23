@@ -431,45 +431,48 @@ app.get('/api/payments/verify/:reference', async (req, res) => {
       `/transaction/verify/${encodeURIComponent(reference)}`
     );
 
+
     const transaction = paystackResult.data.data;
+
     const verifiedAmount = Number(transaction.amount);
     const expectedAmount = Number(saved.expected_amount_kobo);
 
+    // Paystack's requested_amount may be absent on some transactions.
+    // The saved plan amount is the amount our backend originally requested.
+    const requestedAmount = Number(transaction.requested_amount);
+
     console.log('ASSESS PAYMENT DIAGNOSTIC', {
-  referenceMatches: transaction.reference === reference,
-  transactionStatus: transaction.status,
-  transactionCurrency: transaction.currency,
-  savedCurrency: saved.currency,
-  verifiedAmountKobo: Number(transaction.amount),
-  expectedAmountKobo: Number(saved.expected_amount_kobo),
-  planAmountKobo: Number(plan.amount_kobo),
-    gatewayResponseAmount: transaction.gateway_response,
-  feeKobo: transaction.fees,
-  requestedAmountKobo: transaction.requested_amount,    
-});
-    
-const requestedAmount = Number(transaction.requested_amount);
-const feeKobo = Number(transaction.fees);
+      referenceMatches: transaction.reference === reference,
+      transactionStatus: transaction.status,
+      transactionCurrency: transaction.currency,
+      savedCurrency: saved.currency,
+      verifiedAmountKobo: verifiedAmount,
+      expectedAmountKobo: expectedAmount,
+      requestedAmountKobo: transaction.requested_amount,
+    });
 
-const valid =
-  transaction.reference === reference &&
-  transaction.status === 'success' &&
-  transaction.currency === 'NGN' &&
-  saved.currency === 'NGN' &&
-  Number.isSafeInteger(verifiedAmount) &&
-  Number.isSafeInteger(requestedAmount) &&
-  Number.isSafeInteger(feeKobo) &&
-  requestedAmount === expectedAmount &&
-  verifiedAmount === requestedAmount + feeKobo &&
-  expectedAmount === Number(plan.amount_kobo);
+    const valid =
+      transaction.reference === reference &&
+      transaction.status === 'success' &&
+      transaction.currency === 'NGN' &&
+      saved.currency === 'NGN' &&
+      Number.isSafeInteger(verifiedAmount) &&
+      Number.isSafeInteger(expectedAmount) &&
+      expectedAmount === Number(plan.amount_kobo) &&
+      (
+        Number.isSafeInteger(requestedAmount)
+          ? requestedAmount === expectedAmount
+          : verifiedAmount === expectedAmount
+      );
 
-if (!valid) {
-  return res.status(400).json({
-    status: 'error',
-    paid: false,
-    message: 'Payment could not be verified against the saved amount and plan.',
-  });
-}
+    if (!valid) {
+      return res.status(400).json({
+        status: 'error',
+        paid: false,
+        message: 'Payment could not be verified against the saved amount and plan.',
+      });
+    }
+
     client = await pool.connect();
     await client.query('BEGIN');
 
@@ -547,13 +550,12 @@ console.log('ASSESS ACTIVATION DIAGNOSTIC', {
   planAmountKobo: Number(lockedPlan.amount_kobo),
 });
     
-   if (
+    if (
   transaction.reference !== payment.reference ||
   transaction.status !== 'success' ||
   transaction.currency !== payment.currency ||
-  Number(transaction.requested_amount) !== Number(payment.expected_amount_kobo) ||
-  Number(transaction.amount) !==
-    Number(transaction.requested_amount) + Number(transaction.fees) ||
+  !Number.isSafeInteger(Number(transaction.amount)) ||
+  Number(transaction.amount) !== Number(payment.expected_amount_kobo) ||
   Number(payment.expected_amount_kobo) !== Number(lockedPlan.amount_kobo)
 ) {
   throw new Error('Payment validation failed during activation.');

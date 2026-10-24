@@ -309,9 +309,11 @@ app.get('/payment-result', (req, res) => {
     <p id="message" role="status" aria-live="polite">
       Checking your payment securely. Please wait…
     </p>
-    <a href="https://exquisite-bombolone-ab117b.netlify.app">
-      Return to ASSESS
-    </a>
+   
+<a id="return-link" href="https://exquisite-bombolone-ab117b.netlify.app">
+  Return to ASSESS
+</a>
+
   </main>
   <script>
     (async function () {
@@ -333,9 +335,16 @@ app.get('/payment-result', (req, res) => {
         );
         const result = await response.json();
 
-        if (result.paid && result.activated) {
-          message.textContent =
-            'Payment confirmed! Your ASSESS subscription has been activated. You can now return to ASSESS.';
+       
+if (result.paid && result.activated) {
+  message.textContent =
+    'Payment confirmed! Your ASSESS subscription has been activated. You can now return to ASSESS.';
+
+  document.getElementById('return-link').href =
+    'https://exquisite-bombolone-ab117b.netlify.app/?reference=' +
+    encodeURIComponent(reference);
+}
+
         } else {
           message.textContent =
             result.message ||

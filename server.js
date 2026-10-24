@@ -343,13 +343,13 @@ if (result.paid && result.activated) {
   document.getElementById('return-link').href =
     'https://exquisite-bombolone-ab117b.netlify.app/?reference=' +
     encodeURIComponent(reference);
+} else {
+  message.textContent =
+    result.message ||
+    'Payment is not confirmed yet. Please contact ASSESS support if you were charged.';
 }
 
-        } else {
-          message.textContent =
-            result.message ||
-            'Payment is not confirmed yet. Please contact ASSESS support if you were charged.';
-        }
+  }
       } catch (error) {
         message.textContent =
           'We could not check your payment right now. Please contact ASSESS support before paying again.';

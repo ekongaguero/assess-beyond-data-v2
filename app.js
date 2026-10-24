@@ -114,11 +114,22 @@ const [activeSubscription, setActiveSubscription] = useState(null);
 
         if (cancelled) return;
 
-        if (result.paid && result.activated) {
-          setPaymentMessage(
-            'Payment confirmed. Your ASSESS subscription is active.'
-          );
-        } else {
+if (result.paid && result.activated) {
+  setActiveSubscription({
+    planCode: result.planCode || null,
+    startsAt: result.startsAt || null,
+    expiresAt: result.expiresAt || null,
+    status: result.subscriptionStatus || 'active',
+    deviceLimit: result.deviceLimit ?? 1,
+    autoRenew: result.autoRenew ?? false,
+  });
+
+  setPaymentMessage(
+    'Payment confirmed. Your ASSESS subscription is active.'
+  );
+}
+
+         else {
           setPaymentMessage(
             result.message || 'Payment has not been confirmed yet.'
           );

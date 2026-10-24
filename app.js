@@ -59,7 +59,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [serverStatus, setServerStatus] = useState('Checking connection…');
   const [paymentMessage, setPaymentMessage] = useState('');
-
+const [activeSubscription, setActiveSubscription] = useState(null);
   const selected = PLANS.find((plan) => plan.code === selectedPlan);
 
   // Check that the Render backend is responding.

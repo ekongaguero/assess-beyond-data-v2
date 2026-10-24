@@ -528,16 +528,35 @@ if (saved.status === 'paid' && saved.subscription_id) {
         [reference]
       );
 
-      if (existing.rowCount > 0) {
-        await client.query('COMMIT');
-        return res.json({
-          status: 'ok',
-          paid: true,
-          activated: true,
-          alreadyActivated: true,
-          reference,
-        });
-      }
+     
+if (existing.rowCount > 0) {
+  const subscriptionResult = await client.query(
+    `SELECT plan_code, starts_at, expires_at, status, device_limit
+     FROM subscriptions
+     WHERE payment_reference = $1
+     LIMIT 1`,
+    [reference]
+  );
+
+  const subscription = subscriptionResult.rows[0];
+
+  await client.query('COMMIT');
+
+  return res.json({
+    status: 'ok',
+    paid: true,
+    activated: true,
+    alreadyActivated: true,
+    reference,
+    planCode: subscription?.plan_code || payment.plan_code,
+    startsAt: subscription?.starts_at || null,
+    expiresAt: subscription?.expires_at || null,
+    subscriptionStatus: subscription?.status || null,
+    deviceLimit: subscription?.device_limit ?? null,
+    autoRenew: false,
+  });
+}
+
 
       throw new Error('Paid payment has no subscription; manual review required.');
     }

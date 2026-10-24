@@ -328,40 +328,44 @@ if (result.paid && result.activated) {
           </Text>
         </View>
 
-        {paymentMessage ? (
-          <View style={styles.messageBox}>
-            <Text style={styles.messageText}>
-              {paymentMessage}
-            </Text>
-          </View>
-        ) : null}
+{paymentMessage ? (
+  <View style={styles.messageBox}>
+    <Text style={styles.messageText}>
+      {paymentMessage}
+    </Text>
+  </View>
+) : null}
 
-        <TouchableOpacity
-          style={[
-            styles.payButton,
-            loading && styles.disabledButton,
-          ]}
-          onPress={handlePayment}
-          disabled={loading}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.payButtonText}>
-            {loading
-              ? 'Please wait…'
-              : `Pay ₦${(selected?.price || 0).toLocaleString('en-NG')}`}
-          </Text>
-        </TouchableOpacity>
+{activeSubscription ? (
+  <View style={styles.messageBox}>
+    <Text style={styles.messageText}>
+      ACTIVE SUBSCRIPTION
+    </Text>
 
-        <Text style={styles.footer}>
-          Secure checkout powered by Paystack.
-        </Text>
-        <Text style={styles.footer}>
-          ASSESS Beyond Data · Your internet, on your terms.
-        </Text>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
+    <Text style={styles.messageText}>
+      Plan: {activeSubscription.planCode || 'Your ASSESS plan'}
+    </Text>
+
+    <Text style={styles.messageText}>
+      Status: {activeSubscription.status}
+    </Text>
+
+    <Text style={styles.messageText}>
+      Device limit: {activeSubscription.deviceLimit}
+    </Text>
+
+    <Text style={styles.messageText}>
+      Expires: {activeSubscription.expiresAt
+        ? new Date(activeSubscription.expiresAt).toLocaleString()
+        : 'Not available'}
+    </Text>
+
+    <Text style={styles.messageText}>
+      Auto-renewal: Off
+    </Text>
+  </View>
+) : null}
+
 
 const styles = StyleSheet.create({
   safe: {

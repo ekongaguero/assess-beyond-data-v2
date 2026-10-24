@@ -401,15 +401,33 @@ app.get('/api/payments/verify/:reference', async (req, res) => {
 
     const saved = savedResult.rows[0];
 
-    if (saved.status === 'paid' && saved.subscription_id) {
-      return res.json({
-        status: 'ok',
-        paid: true,
-        activated: true,
-        alreadyActivated: true,
-        reference,
-      });
-    }
+    
+if (saved.status === 'paid' && saved.subscription_id) {
+  const subscriptionResult = await pool.query(
+    `SELECT plan_code, starts_at, expires_at, status, device_limit
+     FROM subscriptions
+     WHERE payment_reference = $1
+     LIMIT 1`,
+    [reference]
+  );
+
+  const subscription = subscriptionResult.rows[0];
+
+  return res.json({
+    status: 'ok',
+    paid: true,
+    activated: true,
+    alreadyActivated: true,
+    reference,
+    planCode: subscription?.plan_code || saved.plan_code,
+    startsAt: subscription?.starts_at || null,
+    expiresAt: subscription?.expires_at || null,
+    subscriptionStatus: subscription?.status || null,
+    deviceLimit: subscription?.device_limit ?? null,
+    autoRenew: false,
+  });
+}
+
 
     if (saved.status !== 'pending') {
       return res.status(400).json({
